@@ -1,5 +1,5 @@
 """
-This script is adapted from 
+This script is adapted from
 https://github.com/gkamradt/LLMTest_NeedleInAHaystack
 
 # GPT-4
@@ -34,7 +34,7 @@ python -u needle_in_haystack.py --s_len 0 --e_len 128000\
 """
 
 #import tiktoken
-import os 
+import os
 import glob
 import json
 from transformers import AutoTokenizer, AutoModel, AutoModelForCausalLM, AutoConfig
@@ -89,7 +89,7 @@ class LLMNeedleHaystackTester:
                 final_context_length_buffer = 200,
                 seconds_to_sleep_between_completions = None,
                 print_ongoing_status = True):
-        """        
+        """
         :param needle: The needle to be found in the haystack. Default is None.
         :param haystack_dir: The directory of text files to use as background context (or a haystack) in which the needle is to be found. Default is Paul Graham Essays.
         :param retrieval_question: The question which with to prompt the model to do the retrieval.
@@ -157,7 +157,7 @@ class LLMNeedleHaystackTester:
 
         if document_depth_percent_interval_type not in [None, "linear", "sigmoid"]:
             raise ValueError("document_depth_percent_interval_type must be either None, 'linear' or 'sigmoid'. If you'd like your own distribution give a list of ints in via document_depth_percent_intervals")
-        
+
         self.model_name = model_name
 
         self.enc = AutoTokenizer.from_pretrained(model_name, use_fast=False)
@@ -184,16 +184,17 @@ class LLMNeedleHaystackTester:
         else:
             self.model_to_test = LlamaForCausalLM.from_pretrained(model_name,
                 use_flash_attention_2="flash_attention_2", torch_dtype=torch.bfloat16,device_map='auto').eval()
-            
+
         if 'llama-2-7b-80k' in self.model_version:
             scaling_factor = 10
             reset_rope(self.model_to_test, model_max_train_len=81920, scaling_factor=scaling_factor)
-            
+
         if "CUDA_VISIBLE_DEVICES" in os.environ:
             self.multi_gpus = len(os.environ["CUDA_VISIBLE_DEVICES"])>1
         else:
-            self.multi_gpus = True
-            
+            # do not assume a multi-gpu setup
+            self.multi_gpus = False
+
         self.model_to_test_description = model_name
         self.evaluation_model = None
         self.debug='debug'
@@ -205,14 +206,14 @@ class LLMNeedleHaystackTester:
         if x == 100:
             return 100
         return np.round(L / (1 + np.exp(-k * (x - x0))), 3)
-    
+
     def bound_evaluate_and_log(self, *args):
         self.evaluate_and_log(*args)
 
     def run_test(self, args):
         # Run through each iteration of context_lengths and depths
         tasks = []
-         
+
         for context_length in self.context_lengths:
             if context_length < args.s_len or context_length > args.e_len: continue
             for depth_percent in self.document_depth_percents:
@@ -244,13 +245,13 @@ class LLMNeedleHaystackTester:
             output.append(inp.item())
             self.retrieval_calculate(outputs.attentions, retrieval_score, inp, step_token)
             if step_token=='<0x0A>' or inp.item()==144: break
-        return output, retrieval_score 
+        return output, retrieval_score
 
     def find_needle_idx(self, needle):
         needle_ids = self.enc(needle, add_special_tokens=False)["input_ids"]
         print( self.enc.decode(needle_ids, skip_special_tokens=False))
         span_len = len(needle_ids)
-        for i in range(len(self.prompt_ids)):            
+        for i in range(len(self.prompt_ids)):
             token_span = self.prompt_ids[i : i + span_len]
             span_ids = set(token_span.tolist())
             overlap = float(len(span_ids.intersection(set(needle_ids)))) / len(set(needle_ids))
@@ -278,7 +279,7 @@ class LLMNeedleHaystackTester:
         else:
             input_context = context + question
             input_ids = self.enc(input_context , return_tensors="pt")['input_ids']
-        
+
         # Prepare your message to send to the model you're going to evaluate
         test_start_time = time.time()
         self.prompt_ids = input_ids[0, :]
@@ -292,7 +293,7 @@ class LLMNeedleHaystackTester:
 
         test_end_time = time.time()
         test_elapsed_time = test_end_time - test_start_time
-        
+
         score = scorer.score(self.real_needle, response)['rouge1'].recall*100
         ## if recall > 50, we determine this retrieval succeed and update the retrieval score
         if score > 50:
@@ -337,12 +338,12 @@ class LLMNeedleHaystackTester:
 
             with open(f'contexts/{self.model_version}/{context_file_location}_context.txt', 'w') as f:
                 f.write(context)
-            
+
         if self.save_results:
             # Save the context to file for retesting
             if not os.path.exists(f'results/graph/{self.model_version}'):
                 os.makedirs(f'results/graph/{self.model_version}')
-            
+
             # Save the result to file for retesting
             p = f'results/graph/{self.model_version}/{context_file_location}_results.json'
             print("Writing at %s" % p)
@@ -384,7 +385,7 @@ class LLMNeedleHaystackTester:
         context = self.insert_needle(context, depth_percent, context_length)
 
         return context
-    
+
     def encode_text_to_tokens(self, text):
         if self.model_provider in ["OpenAI", "LLaMA", "Mistral", "GLM"]:
             return self.enc.encode(text)
@@ -393,7 +394,7 @@ class LLMNeedleHaystackTester:
             return self.enc.encode(text).ids
         else:
             raise ValueError("model_provider must be either 'OpenAI' or 'Anthropic'")
-    
+
     def insert_needle(self, context, depth_percent, context_length):
         tokens_needle = self.encode_text_to_tokens(self.needle)
         tokens_context = self.encode_text_to_tokens(context)
@@ -421,7 +422,7 @@ class LLMNeedleHaystackTester:
             elif(self.model_provider == "Mistral"): period_tokens = [842, 28723]
             elif(self.model_provider == "GLM"): period_tokens = [918, 30930]
             else: period_tokens = self.encode_text_to_tokens('.')
-            
+
             # Then we iteration backwards until we find the first period
             while tokens_new_context and tokens_new_context[-1] not in period_tokens:
                 insertion_point -= 1
@@ -444,7 +445,7 @@ class LLMNeedleHaystackTester:
             encoded = self.enc.encode(context)
             return len(self.enc.encode(context).ids)
         else:
-            
+
             raise ValueError("model_provider must be either 'OpenAI' or 'Anthropic'")
 
     def read_context_files(self):
@@ -465,7 +466,7 @@ class LLMNeedleHaystackTester:
             return self.enc.encode(context).ids
         else:
             raise ValueError("model_provider must be either 'OpenAI' or 'Anthropic'")
-        
+
     def decode_tokens(self, tokens, context_length=None):
         if self.model_provider in ["OpenAI", "LLaMA", "Mistral", "GLM"]:
             return self.enc.decode(tokens[:context_length])
@@ -480,10 +481,10 @@ class LLMNeedleHaystackTester:
         if len(tokens) > context_length:
             context = self.decode_tokens(tokens, context_length)
         return context
-    
+
     def get_results(self):
         return self.testing_results
-    
+
     def print_start_test_summary(self):
         print ("\n")
         print ("Starting Needle In A Haystack Testing...")
@@ -514,24 +515,28 @@ class LLMNeedleHaystackTester:
 if __name__ == "__main__":
     # Tons of defaults set, check out the LLMNeedleHaystackTester's init for more info
     parser = argparse.ArgumentParser()
-    parser.add_argument('-s', '--s_len', metavar='N', type=int, help='a number')
-    parser.add_argument('-e', '--e_len', metavar='N', type=int, help='a number')
     parser.add_argument('--model_path', type=str, default=None, help='path to model')
     parser.add_argument('--model_name', type=str, default=None, help='name of model')
     parser.add_argument('--model_name_suffix', type=str, default=None, help='name of model')
     parser.add_argument('--model_provider', type=str, default="LLaMA", help='which model to use')
+    parser.add_argument('-s', '--s_len', metavar='N', type=int, help='a number')
+    parser.add_argument('-e', '--e_len', metavar='N', type=int, help='a number')
+    parser.add_argument('--context_lengths_num_intervals', type=int, default=20, help='number of intervals for the context length')
+    parser.add_argument('--document_depth_percent_intervals', type=int, default=10, help='number of intervals for the document depth percent')
     args = parser.parse_args()
-   
+
     model_name = args.model_path
 
 
-    ht = LLMNeedleHaystackTester(model_name=model_name, 
+    ht = LLMNeedleHaystackTester(model_name=model_name,
                                  model_name_suffix=args.model_name_suffix,
                                  model_provider=args.model_provider,
                                  save_contexts=True,
                                  save_results=True,
                                  context_lengths_min=args.s_len,
                                  context_lengths_max=args.e_len,
+                                 context_lengths_num_intervals=args.context_lengths_num_intervals,
+                                 document_depth_percent_intervals=args.document_depth_percent_intervals,
                                  )
 
     ht.start_test(args)
